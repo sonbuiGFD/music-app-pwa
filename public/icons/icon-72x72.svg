@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="72" height="72" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gradient-72" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#2563eb;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1d4ed8;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow-72" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="1.44" stdDeviation="0.72" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- Background circle with shadow -->
+  <circle cx="36" cy="36" r="28.8" fill="url(#gradient-72)" stroke="#1e40af" stroke-width="2.25" filter="url(#shadow-72)"/>
+  
+  <!-- Music note icon -->
+  <g transform="translate(36, 36)" fill="white" stroke="white" stroke-width="1.125">
+    <!-- Note head -->
+    <ellipse cx="0" cy="4.319999999999999" rx="8.639999999999999" ry="4.319999999999999" fill="white"/>
+    
+    <!-- Note stem -->
+    <rect x="6.4799999999999995" y="-12.959999999999999" width="1.8" height="17.279999999999998" fill="white"/>
+    
+    <!-- Note flag -->
+    <path d="M 7.559999999999999 -12.959999999999999 Q 12.959999999999999 -8.639999999999999 7.559999999999999 -4.319999999999999" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

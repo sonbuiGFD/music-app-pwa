@@ -1,0 +1,13 @@
+{
+  "playlists": [
+    {
+      "id": "all-videos",
+      "name": "All Videos",
+      "description": "All available video files",
+      "videos": [],
+      "createdAt": "2025-09-06T10:11:44.417Z",
+      "updatedAt": "2025-09-06T10:31:32.958Z",
+      "isDefault": true
+    }
+  ]
+}

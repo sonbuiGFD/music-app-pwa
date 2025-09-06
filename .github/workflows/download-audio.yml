@@ -1,0 +1,214 @@
+name: Download Audio
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_url:
+        description: "YouTube URL to download"
+        required: true
+        type: string
+      audio_format:
+        description: "Audio format (mp3, m4a, wav)"
+        required: false
+        default: "mp3"
+        type: choice
+        options:
+          - mp3
+          - m4a
+          - wav
+      quality:
+        description: "Audio quality"
+        required: false
+        default: "best"
+        type: choice
+        options:
+          - best
+          - 320k
+          - 256k
+          - 192k
+          - 128k
+      custom_name:
+        description: "Custom filename (optional)"
+        required: false
+        type: string
+
+jobs:
+  download-audio:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install yt-dlp
+        run: |
+          pip install yt-dlp
+          pip install mutagen
+
+      - name: Create audio directory
+        run: mkdir -p public/audio
+
+      - name: Download audio
+        run: |
+          # Set up yt-dlp command
+          YT_DLP_CMD="yt-dlp"
+
+          # Add format option
+          if [ "${{ inputs.audio_format }}" = "mp3" ]; then
+            FORMAT_OPTION="--extract-audio --audio-format mp3 --audio-quality ${{ inputs.quality }}"
+          elif [ "${{ inputs.audio_format }}" = "m4a" ]; then
+            FORMAT_OPTION="--extract-audio --audio-format m4a --audio-quality ${{ inputs.quality }}"
+          elif [ "${{ inputs.audio_format }}" = "wav" ]; then
+            FORMAT_OPTION="--extract-audio --audio-format wav"
+          else
+            FORMAT_OPTION="--extract-audio --audio-format mp3 --audio-quality ${{ inputs.quality }}"
+          fi
+
+          # Add custom name if provided
+          if [ -n "${{ inputs.custom_name }}" ]; then
+            OUTPUT_OPTION="-o 'public/audio/${{ inputs.custom_name }}.%(ext)s'"
+          else
+            OUTPUT_OPTION="-o 'public/audio/%(title)s.%(ext)s'"
+          fi
+
+          # Download the audio
+          $YT_DLP_CMD $FORMAT_OPTION $OUTPUT_OPTION \
+            --embed-metadata \
+            --embed-thumbnail \
+            --write-info-json \
+            --write-thumbnail \
+            "${{ inputs.youtube_url }}"
+
+      - name: Process metadata
+        run: |
+          # Find the downloaded files
+          AUDIO_FILE=$(find public/audio -name "*.mp3" -o -name "*.m4a" -o -name "*.wav" | head -1)
+          INFO_FILE=$(find public/audio -name "*.info.json" | head -1)
+          THUMBNAIL_FILE=$(find public/audio -name "*.jpg" -o -name "*.png" | head -1)
+
+          if [ -n "$AUDIO_FILE" ] && [ -n "$INFO_FILE" ]; then
+            # Extract metadata from info.json
+            TITLE=$(jq -r '.title' "$INFO_FILE")
+            UPLOADER=$(jq -r '.uploader' "$INFO_FILE")
+            DURATION=$(jq -r '.duration' "$INFO_FILE")
+            THUMBNAIL_URL=$(jq -r '.thumbnail' "$INFO_FILE")
+            
+            # Create track metadata
+            TRACK_ID=$(echo "$TITLE" | tr ' ' '_' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')
+            TRACK_FILE=$(basename "$AUDIO_FILE")
+            
+            # Create track object
+            cat > "public/audio/${TRACK_ID}.json" << EOF
+          {
+            "id": "${TRACK_ID}",
+            "title": "${TITLE}",
+            "artist": "${UPLOADER}",
+            "duration": ${DURATION},
+            "url": "/audio/${TRACK_FILE}",
+            "thumbnail": "${THUMBNAIL_URL}",
+            "metadata": {
+              "title": "${TITLE}",
+              "artist": "${UPLOADER}",
+              "duration": ${DURATION},
+              "thumbnail": "${THUMBNAIL_URL}",
+              "uploader": "${UPLOADER}"
+            },
+            "tags": [],
+            "rating": 0,
+            "playCount": 0,
+            "dateAdded": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+          }
+          EOF
+            
+            # Move thumbnail if it exists
+            if [ -n "$THUMBNAIL_FILE" ]; then
+              THUMBNAIL_EXT=$(echo "$THUMBNAIL_FILE" | sed 's/.*\.//')
+              mv "$THUMBNAIL_FILE" "public/audio/${TRACK_ID}.${THUMBNAIL_EXT}"
+            fi
+            
+            echo "Audio downloaded successfully: $TITLE"
+          else
+            echo "Failed to find downloaded files"
+            exit 1
+          fi
+
+      - name: Update audio index
+        run: |
+          # Create or update audio index
+          if [ -f "public/audio/index.json" ]; then
+            # Load existing index
+            jq '.' public/audio/index.json > /tmp/audio_index.json
+          else
+            # Create new index
+            echo '{"tracks": []}' > /tmp/audio_index.json
+          fi
+
+          # Add new track to index
+          NEW_TRACK_FILE=$(find public/audio -name "*.json" -not -name "index.json" | head -1)
+          if [ -n "$NEW_TRACK_FILE" ]; then
+            NEW_TRACK=$(cat "$NEW_TRACK_FILE")
+            jq --argjson track "$NEW_TRACK" '.tracks += [$track]' /tmp/audio_index.json > public/audio/index.json
+          fi
+
+      - name: Update playlists
+        run: |
+          # Create or update playlists
+          if [ -f "public/audio/playlists.json" ]; then
+            # Load existing playlists
+            jq '.' public/audio/playlists.json > /tmp/playlists.json
+          else
+            # Create new playlists
+            echo '{"playlists": []}' > /tmp/playlists.json
+          fi
+
+          # Update "All Tracks" playlist
+          ALL_TRACKS_PLAYLIST='{
+            "id": "all-tracks",
+            "name": "All Tracks",
+            "description": "All available audio tracks",
+            "tracks": [],
+            "createdAt": "'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)'",
+            "updatedAt": "'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)'",
+            "isDefault": true
+          }'
+
+          # Get all track IDs
+          TRACK_IDS=$(jq -r '.tracks[].id' public/audio/index.json | jq -R -s -c 'split("\n")[:-1]')
+
+          # Update playlists
+          jq --argjson trackIds "$TRACK_IDS" '
+            .playlists = [
+              {
+                "id": "all-tracks",
+                "name": "All Tracks",
+                "description": "All available audio tracks",
+                "tracks": $trackIds,
+                "createdAt": "'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)'",
+                "updatedAt": "'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)'",
+                "isDefault": true
+              }
+            ]
+          ' /tmp/playlists.json > public/audio/playlists.json
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add public/audio/
+          git commit -m "Add audio: ${{ inputs.youtube_url }}" || exit 0
+          git push
+
+      - name: Clean up
+        run: |
+          # Remove temporary files
+          rm -f /tmp/audio_index.json /tmp/playlists.json
+          # Remove info.json files (keep only our custom JSON)
+          find public/audio -name "*.info.json" -delete
